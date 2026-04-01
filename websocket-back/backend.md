@@ -17,13 +17,13 @@ Crie um backend **Java 21** com **Spring Boot 3.3+** para suportar um sistema de
 | Spring Security | 6.x | JWT + filtros |
 | Spring WebSocket | — | STOMP sobre WebSocket |
 | Spring Data JPA | — | Persistência |
-| PostgreSQL | 16 | Banco principal |
-| Redis | 7 | Sessões online / pub-sub |
+| H2 | — | Banco local padrão |
+| PostgreSQL | 16 | Perfil opcional |
 | Flyway | — | Migrations |
 | MapStruct | 1.5+ | Mappers DTO ↔ Domain |
 | SpringDoc OpenAPI | 2.x | Documentação automática |
 | TestContainers | — | Testes de integração |
-| Docker Compose | — | Ambiente local |
+| Redis | — | Substituído por armazenamento em memória |
 
 ---
 
@@ -79,13 +79,13 @@ src/main/java/com/seuprojeto/chat/
 │   │   ├── WebSocketConfig.java
 │   │   ├── ChatWebSocketHandler.java    # Lógica STOMP
 │   │   ├── WebSocketEventPublisher.java # Implementa domain.EventPublisher
-│   │   └── OnlineUserRegistry.java     # Redis: SET de userId online
+│   │   └── OnlineUserRegistry.java     # Registros online em memória
 │   ├── security/
 │   │   ├── JwtTokenProvider.java
 │   │   ├── JwtAuthenticationFilter.java
 │   │   └── SecurityConfig.java
 │   └── redis/
-│       └── RedisConfig.java
+│       └── RedisConfig.java           # Removido no runtime local
 │
 └── interfaces/                      # Entrada: Controllers REST + WS
     ├── rest/
@@ -132,7 +132,7 @@ public record LoginRequest(
 ```
 POST /api/v1/auth/login     → { token, expiresAt, user: UserResponse }
 POST /api/v1/auth/refresh   → { token, expiresAt }
-POST /api/v1/auth/logout    → 204 (invalida sessão no Redis)
+POST /api/v1/auth/logout    → 204 (invalida sessão em memória)
 ```
 
 ---
@@ -261,7 +261,7 @@ public record UserId(UUID value) {
 // Ao receber MessageSentEvent:
 //   1. Persiste notificação no banco
 //   2. Publica via STOMP em /user/{recipientId}/queue/notifications
-//   3. Atualiza badge count no Redis: INCR chat:unread:{userId}:{conversationId}
+//   3. Atualiza badge count em memória: chat:unread:{userId}:{conversationId}
 
 // Payload de notificação:
 public record WsNotificationPayload(
@@ -319,17 +319,15 @@ CREATE INDEX idx_messages_conversation ON messages(conversation_id, sent_at DESC
 # application.yml
 spring:
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    active: ${SPRING_PROFILES_ACTIVE:local}
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/chatdb}
-    username: ${DB_USER:chat}
-    password: ${DB_PASS:chat}
+    url: jdbc:h2:mem:chatdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
   jpa:
-    hibernate.ddl-auto: validate   # Flyway gerencia o schema
-    open-in-view: false            # Nunca true em produção
-  data.redis:
-    host: ${REDIS_HOST:localhost}
-    port: 6379
+    hibernate.ddl-auto: create-drop
+    open-in-view: false
   threads:
     virtual:
       enabled: true                # Virtual Threads — Java 21
@@ -354,7 +352,7 @@ Unit (sem Spring, sem banco):
   UserTest.java                → testa User.create(), markOnline(), regras de negócio
   SendMessageUseCaseTest.java  → mocks dos ports com Mockito
 
-Integration (TestContainers — PostgreSQL + Redis reais):
+Integration (TestContainers — PostgreSQL reais):
   @SpringBootTest + @Testcontainers
   AuthControllerIT.java        → fluxo completo de login
   ChatWebSocketIT.java         → conecta via STOMP, envia mensagem, verifica recebimento
@@ -366,22 +364,13 @@ Architecture (ArchUnit):
 
 ---
 
-## 🐳 Docker Compose (dev)
+## ▶ Execução Local
 
-```yaml
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: chatdb
-      POSTGRES_USER: chat
-      POSTGRES_PASSWORD: chat
-    ports: ["5432:5432"]
-
-  redis:
-    image: redis:7-alpine
-    ports: ["6379:6379"]
+```bash
+./mvnw spring-boot:run
 ```
+
+O perfil padrão é `local`, com banco H2 em memória e sem Redis. Se quiser usar PostgreSQL em vez de H2, rode com `SPRING_PROFILES_ACTIVE=dev` e forneça um banco PostgreSQL local.
 
 ---
 
@@ -428,14 +417,14 @@ Infrastructure Layer
   JPA Repositories · WebSocketHandler · JWT Provider · Mappers
     │                     │
     ▼                     ▼
-PostgreSQL             Redis
-(JPA + Flyway)     (Sessões online)
+H2 / PostgreSQL      In-memory Registry
+(local / opcional)   (sessões online e blacklist JWT)
 
 Cross-Cutting (transversal a todas as camadas):
   GlobalExceptionHandler · RequestLoggingFilter
   AuditListener · ApplicationEventBus
   SpringDoc/OpenAPI · Actuator + Micrometer
-  TestContainers · Docker Compose · Profiles dev/prod
+  TestContainers · Profiles local/dev/test
 ```
 
 ---

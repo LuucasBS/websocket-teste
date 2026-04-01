@@ -1,30 +1,39 @@
 package com.seuprojeto.chat.infrastructure.security;
 
-import java.time.Duration;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 
 @Service
 public class TokenBlacklistService {
 
-    private final StringRedisTemplate stringRedisTemplate;
-
-    public TokenBlacklistService(StringRedisTemplate stringRedisTemplate) {
-        this.stringRedisTemplate = stringRedisTemplate;
-    }
+    private final Map<String, Instant> blacklistedTokens = new ConcurrentHashMap<>();
 
     public void blacklist(String token, long ttlSeconds) {
         if (token == null || token.isBlank()) {
             return;
         }
-        stringRedisTemplate.opsForValue().set(key(token), "1", Duration.ofSeconds(ttlSeconds));
+        if (ttlSeconds <= 0) {
+            return;
+        }
+        blacklistedTokens.put(key(token), Instant.now().plusSeconds(ttlSeconds));
     }
 
     public boolean isBlacklisted(String token) {
         if (token == null || token.isBlank()) {
             return false;
         }
-        return Boolean.TRUE.equals(stringRedisTemplate.hasKey(key(token)));
+        String key = key(token);
+        Instant expiresAt = blacklistedTokens.get(key);
+        if (expiresAt == null) {
+            return false;
+        }
+        if (Instant.now().isAfter(expiresAt)) {
+            blacklistedTokens.remove(key);
+            return false;
+        }
+        return true;
     }
 
     private String key(String token) {
