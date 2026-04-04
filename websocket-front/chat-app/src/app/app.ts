@@ -36,7 +36,8 @@ export class App implements OnDestroy {
         }
 
         if (event.type === 'MESSAGE' && event.payload.fromUserId !== me.id) {
-          this.notifications.notifyMessage(event.payload.fromUserId, event.payload.content, event.payload.fromUserId);
+          const senderName = this.wsService.resolveDisplayName(event.payload.fromUserId);
+          this.notifications.notifyMessage(senderName, event.payload.content, event.payload.fromUserId);
         }
 
         if (event.type === 'CHAT_REQUEST' && event.payload.from.id !== me.id) {

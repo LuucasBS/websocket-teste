@@ -45,6 +45,9 @@ public class ChatApplicationService implements SendMessageUseCase, LoadHistoryUs
 
     @Override
     public ChatMessage send(SendMessageCommand command) {
+        requireUserId(command.fromUserId(), "fromUserId");
+        requireUserId(command.toUserId(), "toUserId");
+
         ChatMessage message = messageRepository.save(
             ChatMessage.create(ConversationId.of(command.conversationId()), UserId.of(command.fromUserId()), command.content())
         );
@@ -72,5 +75,11 @@ public class ChatApplicationService implements SendMessageUseCase, LoadHistoryUs
             .findById(MessageId.of(messageId))
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Mensagem nao encontrada"));
         return messageRepository.save(message.markRead());
+    }
+
+    private static void requireUserId(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " nao pode ser vazio");
+        }
     }
 }

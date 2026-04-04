@@ -82,6 +82,15 @@ export class ChatComponent implements OnInit, OnDestroy {
       this.notifications.clearUnread(chatUserId);
       this.scrollToBottom();
     });
+
+    effect(() => {
+      const chatUserId = this.activeUserId();
+      if (!chatUserId) {
+        return;
+      }
+
+      this.activeUserName.set(this.wsService.resolveDisplayName(chatUserId));
+    });
   }
 
   ngOnInit(): void {
@@ -93,7 +102,7 @@ export class ChatComponent implements OnInit, OnDestroy {
         }
 
         this.activeUserId.set(userId);
-        this.activeUserName.set(`Usuario ${userId}`);
+        this.activeUserName.set(this.wsService.resolveDisplayName(userId));
         this.notifications.clearPendingRequest(userId);
         this.loadHistory(userId);
       })

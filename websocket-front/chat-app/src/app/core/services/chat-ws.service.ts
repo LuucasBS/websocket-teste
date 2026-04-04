@@ -157,7 +157,26 @@ export class ChatWebSocketService {
 
   mergeConversationHistory(withUserId: string, history: ChatMessage[]): void {
     const stream = this.conversationSignal(withUserId);
-    stream.set(history.slice(-50));
+    const orderedHistory = [...history].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+    stream.set(orderedHistory.slice(-50));
+  }
+
+  resolveDisplayName(userId: string): string {
+    if (!userId) {
+      return 'Contato';
+    }
+
+    const currentUser = this.authService.currentUser();
+    if (currentUser?.id === userId) {
+      return currentUser.displayName ?? currentUser.username;
+    }
+
+    const knownUser = this._usersOnline().find((user) => user.id === userId);
+    if (knownUser) {
+      return knownUser.displayName || knownUser.username || 'Contato';
+    }
+
+    return 'Contato';
   }
 
   loadHistory(withUserId: string, limit = 50): Observable<ChatMessage[]> {
@@ -219,6 +238,10 @@ export class ChatWebSocketService {
     }
 
     if (event.type === 'MESSAGE') {
+      if (!event.payload.toUserId) {
+        return;
+      }
+
       void this.ensureConversation(event.payload.toUserId).subscribe((conversationId) => {
         this.subscribeConversation(conversationId, event.payload.toUserId);
         this.stompClient?.publish({
@@ -227,6 +250,7 @@ export class ChatWebSocketService {
             type: 'MESSAGE',
             conversationId,
             fromUserId: event.payload.fromUserId,
+            toUserId: event.payload.toUserId,
             content: event.payload.content,
             sentAt: event.payload.timestamp,
             messageId: event.payload.id
@@ -398,8 +422,8 @@ export class ChatWebSocketService {
 
     const fromUser = this._usersOnline().find((user) => user.id === event.fromUserId) ?? {
       id: event.fromUserId,
-      username: event.fromUserId,
-      displayName: event.fromUserId,
+      username: this.resolveDisplayName(event.fromUserId),
+      displayName: this.resolveDisplayName(event.fromUserId),
       online: true
     };
 

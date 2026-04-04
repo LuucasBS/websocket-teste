@@ -24,7 +24,11 @@ public class ChatWebSocketHandler {
 
     @MessageMapping("/chat.send")
     public void send(WsMessagePayload payload, Principal principal) {
-        String fromUserId = principal == null ? "" : principal.getName();
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            throw new IllegalStateException("Usuario nao autenticado no WebSocket");
+        }
+
+        String fromUserId = principal.getName();
         chatApplicationService.send(
             new SendMessageCommand(payload.conversationId(), fromUserId, payload.toUserId(), payload.content())
         );
